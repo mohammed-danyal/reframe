@@ -20,6 +20,7 @@ export default function VideoPreview({ file, recipe, videoRef }: Props) {
   const [showOverlay, setShowOverlay] = useState(false);
   const onLoadedRef = useRef<(() => void) | null>(null);
 
+  /** Capture the current video frame and download it as a PNG. */
   const handleGrabFrame = useCallback(() => {
     const video = videoRef.current;
     if (!video || video.readyState < 2) return;
@@ -48,7 +49,6 @@ export default function VideoPreview({ file, recipe, videoRef }: Props) {
       URL.revokeObjectURL(url);
     }, "image/png");
   }, [videoRef]);
-
   useEffect(() => {
     if (!file) return;
 
@@ -57,6 +57,7 @@ export default function VideoPreview({ file, recipe, videoRef }: Props) {
     const id = ++lastId.current;
     const url = URL.createObjectURL(file);
 
+    // cleanup previous object URL safely
     if (urlRef.current) {
       URL.revokeObjectURL(urlRef.current);
     }
@@ -68,6 +69,7 @@ export default function VideoPreview({ file, recipe, videoRef }: Props) {
     video.src = url;
     video.load();
 
+    // define handler once per effect run
     const handleLoaded = () => {
       if (lastId.current !== id) return;
       video.play().catch(() => {});
@@ -78,17 +80,20 @@ export default function VideoPreview({ file, recipe, videoRef }: Props) {
     video.addEventListener("loadeddata", handleLoaded);
 
     return () => {
+      // cleanup event listener safely
       if (onLoadedRef.current) {
         video.removeEventListener("loadeddata", onLoadedRef.current);
         onLoadedRef.current = null;
       }
 
+      // stop playback safely
       if (video) {
         video.pause();
         video.removeAttribute("src");
         video.load();
       }
 
+      // revoke only if still current
       if (urlRef.current === url) {
         URL.revokeObjectURL(urlRef.current);
         urlRef.current = null;
@@ -96,16 +101,11 @@ export default function VideoPreview({ file, recipe, videoRef }: Props) {
     };
   }, [file, videoRef]);
 
-  useEffect(() => {
-    if (!videoRef.current || !recipe) return;
-    videoRef.current.muted = !recipe.keepAudio;
-  }, [recipe, videoRef]);
-
-  useEffect(() => {
-    if (!videoRef.current || !recipe) return;
-    videoRef.current.playbackRate = recipe.speed;
-  }, [recipe, videoRef]);
-
+  /**
+   * Compute the overlay geometry for the selected preset + framing mode.
+   * The preview container always uses a 16:9 aspect-video box.
+   * We express widths/heights as percentage strings for CSS.
+   */
   const overlay = (() => {
     if (!recipe || !showOverlay) return null;
 
@@ -196,10 +196,7 @@ export default function VideoPreview({ file, recipe, videoRef }: Props) {
         className={cn("w-full h-full object-contain transition-opacity duration-300", isLoading ? "opacity-0" : "opacity-100")}
         onLoadedData={() => setIsLoading(false)}
         playsInline
-        muted={!recipe?.keepAudio}
-      >
-        <track kind="captions" />
-      </video>
+      />
 
       {/* Letterbox / Crop overlay */}
       {overlay && (
@@ -238,7 +235,7 @@ export default function VideoPreview({ file, recipe, videoRef }: Props) {
         <button
           type="button"
           onClick={() => setShowOverlay((v) => !v)}
-          className={`absolute top-2 left-2 px-2 py-1 text-[10px] font-heading font-bold uppercase tracking-wider rounded transition-colors z-10 pointer-events-auto ${
+          className={`absolute bottom-10 right-2 px-2 py-1 text-[10px] font-heading font-bold uppercase tracking-wider rounded transition-colors z-10 pointer-events-auto ${
             showOverlay
               ? "bg-film-600 text-white"
               : "bg-black/60 text-white/70 hover:bg-black/80"
