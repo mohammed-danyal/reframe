@@ -15,11 +15,12 @@ import ExportSettings from "./ExportSettings";
 import ExportOverlay from "./ExportOverlay";
 import DownloadResult from "./DownloadResult";
 import ImageOverlay from "./ImageOverlay"
+import TextOverlayPanel from "./TextOverlayPanel";
 
 import { cn } from "@/lib/utils";
 import {
   Layers, Crop, Scissors, RotateCw, Volume2,
-  SlidersHorizontal, Zap, AlertTriangle, Github, Copy
+  SlidersHorizontal, Zap, AlertTriangle, Github, Copy, Type
 } from "lucide-react";
 import OnboardingTour from "./OnboardingTour";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -151,6 +152,7 @@ export default function VideoEditor() {
     recommendedPreset,
     currentTime,
     toggleSound,
+    textOverlays, addTextOverlay, updateTextOverlay, removeTextOverlay,
   } = useVideoEditor();
 
   useKeyboardShortcuts({
@@ -246,7 +248,13 @@ export default function VideoEditor() {
 
               {file && (
                 <div className="mt-4 animate-fade-in">
-                  <VideoPreview file={file} recipe={recipe} videoRef={videoRef} />
+                  <VideoPreview
+                    file={file}
+                    recipe={recipe}
+                    videoRef={videoRef}
+                    textOverlays={textOverlays}
+                    onUpdateTextOverlay={updateTextOverlay}
+                  />
 
                   <div className="mt-3">
                     <ThumbnailStrip
@@ -283,6 +291,14 @@ export default function VideoEditor() {
                   </Section>
                   <Section icon={<RotateCw size={12} />} title="Rotate" delay={100}>
                     <RotateControl recipe={recipe} onChange={updateRecipe} />
+                  </Section>
+                  <Section icon={<Type size={12} />} title="Text overlay" delay={130}>
+                    <TextOverlayPanel
+                      textOverlays={textOverlays}
+                      onAdd={addTextOverlay}
+                      onUpdate={updateTextOverlay}
+                      onRemove={removeTextOverlay}
+                    />
                   </Section>
                 </div>
                 <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] p-5 space-y-6">

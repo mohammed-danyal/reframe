@@ -1,10 +1,11 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile } from "@ffmpeg/util";
-import { EditRecipe, ExportResult, BackgroundMusicOptions, ImageOverlayOptions } from "./types";
+import { EditRecipe, ExportResult, BackgroundMusicOptions, ImageOverlayOptions, TextOverlay } from "./types";
 import { getPresetById } from "./presets";
 import { simd } from "wasm-feature-detect";
 
 const CORE_BASE_URL = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd";
+const DEFAULT_FONT_URL = "https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Me5Q.ttf";
 
 // Added from main branch for subresource security verification
 const SRI_HASHES: Record<string, string> = {
@@ -131,7 +132,32 @@ export function buildVideoFilter(recipe: EditRecipe, targetW: number, targetH: n
   return filters.join(",");
 }
 
- export function buildAudioFilter(speed: number, normalizeAudio: boolean): string {
+/**
+ * Build FFmpeg drawtext filter expressions for text overlays.
+ * Each overlay's percentage-based position is converted to absolute
+ * pixel coordinates using the target dimensions.
+ */
+function buildDrawtextFilters(
+  textOverlays: TextOverlay[],
+  targetW: number,
+  targetH: number
+): string[] {
+  return textOverlays.map((t) => {
+    // Escape special characters for FFmpeg drawtext
+    const escaped = t.text
+      .replace(/\\/g, "\\\\")
+      .replace(/'/g, "'\\\''")
+      .replace(/:/g, "\\:");
+    const px = Math.round((t.x / 100) * targetW);
+    const py = Math.round((t.y / 100) * targetH);
+    const bold = t.fontWeight === "bold" ? ":borderw=2" : "";
+    return `drawtext=fontfile=font.ttf:text='${escaped}':fontsize=${t.fontSize}:fontcolor=${t.color}:x=${px}-(tw/2):y=${py}-(th/2)${bold}`;
+  });
+}
+
+export function buildAudioFilter(speed: number): string {
+  if (speed === 1) return "";
+
   const filters: string[] = [];
 
   let remaining = speed;
@@ -148,8 +174,6 @@ export function buildVideoFilter(recipe: EditRecipe, targetW: number, targetH: n
  if (Math.abs(remaining - 1.0) > 0.001) {
     filters.push(`atempo=${Number(remaining.toFixed(4))}`);
   }
-
-  if (normalizeAudio) filters.push("loudnorm=I=-14:TP=-1.5:LRA=11");
 
   return filters.join(",");
 }
@@ -173,11 +197,12 @@ function buildArguments(
   hasOverlay: boolean,
   overlayInputName: string,
   overlayOptions: ImageOverlayOptions | undefined,
-  hasOriginalAudio: boolean
+  hasOriginalAudio: boolean,
+  textOverlays?: TextOverlay[]
 ): string[] {
   const vf = buildVideoFilter(recipe, targetW, targetH);
   const audioTrim = hasOriginalAudio ? buildAudioTrimFilter(recipe) : "";
-const audioSpeed = hasOriginalAudio ? buildAudioFilter(recipe.speed, recipe.normalizeAudio ?? false) : "";
+  const audioSpeed = hasOriginalAudio ? buildAudioFilter(recipe.speed) : "";
   const afParts = [audioTrim, audioSpeed].filter(Boolean);
   const af = afParts.join(",");
 
@@ -221,6 +246,15 @@ const audioSpeed = hasOriginalAudio ? buildAudioFilter(recipe.speed, recipe.norm
       videoOut = "[vout]";
     }
 
+    // Append drawtext filters for text overlays
+    if (textOverlays && textOverlays.length > 0) {
+      const dtFilters = buildDrawtextFilters(textOverlays, targetW, targetH);
+      const prevOut = videoOut;
+      const dtLabel = "[vtxt]";
+      filterParts.push(`${prevOut}${dtFilters.join(",")}${dtLabel}`);
+      videoOut = dtLabel;
+    }
+
     let audioOut = "";
     if (shouldKeepAudio) {
       if (hasMusicTrack) {
@@ -257,7 +291,12 @@ const audioSpeed = hasOriginalAudio ? buildAudioFilter(recipe.speed, recipe.norm
       args.push("-map", "0:a");
     }
   } else {
-    if (vf) args.push("-vf", vf);
+    // Build combined video filter with drawtext appended
+    const dtFilters = textOverlays && textOverlays.length > 0
+      ? buildDrawtextFilters(textOverlays, targetW, targetH)
+      : [];
+    const allVf = [vf, ...dtFilters].filter(Boolean).join(",");
+    if (allVf) args.push("-vf", allVf);
     if (!shouldKeepAudio) {
       args.push("-an");
     } else if (af && hasOriginalAudio) {
@@ -287,7 +326,8 @@ export async function exportVideo(
   onProgress: (percent: number) => void,
   signal?: AbortSignal,
   musicOptions?: BackgroundMusicOptions,
-  overlayOptions?: ImageOverlayOptions
+  overlayOptions?: ImageOverlayOptions,
+  textOverlays?: TextOverlay[]
 ): Promise<ExportResult> {
   const sessionId = buildSessionId();
   let targetW: number, targetH: number;
@@ -334,7 +374,7 @@ export async function exportVideo(
 
     const vf = buildVideoFilter(recipe, targetW, targetH);
   const audioTrim = buildAudioTrimFilter(recipe);
-  const audioSpeed = buildAudioFilter(recipe.speed, recipe.normalizeAudio ?? false);
+  const audioSpeed = buildAudioFilter(recipe.speed);
 
   const afParts = [audioTrim, audioSpeed].filter(Boolean);
   const af = afParts.join(",");
@@ -351,6 +391,16 @@ export async function exportVideo(
     if (hasOverlay) {
       await ffmpeg.writeFile(overlayInputName, await fetchFile(overlayOptions!.file!), { signal });
       cleanupFiles.add(overlayInputName);
+    }
+
+    if (textOverlays && textOverlays.length > 0) {
+      // ffmpeg.wasm drawtext requires a fontfile
+      try {
+        await ffmpeg.writeFile("font.ttf", await fetchFile(DEFAULT_FONT_URL), { signal });
+        cleanupFiles.add("font.ttf");
+      } catch (err) {
+        console.warn("Failed to load default font for text overlay", err);
+      }
     }
 
     ffmpeg.on("progress", handleProgress);
@@ -411,7 +461,8 @@ export async function exportVideo(
     let args = buildArguments(
       recipe, recipe.format, outputName, inputName, targetW, targetH,
       hasMusicTrack, musicInputName, musicOptions,
-      hasOverlay, overlayInputName, overlayOptions, true
+      hasOverlay, overlayInputName, overlayOptions, true,
+      textOverlays
     );
 
     let exitCode = await ffmpeg.exec(args, undefined, { signal });
@@ -422,7 +473,8 @@ export async function exportVideo(
       args = buildArguments(
         recipe, recipe.format, outputName, inputName, targetW, targetH,
         hasMusicTrack, musicInputName, musicOptions,
-        hasOverlay, overlayInputName, overlayOptions, false
+        hasOverlay, overlayInputName, overlayOptions, false,
+        textOverlays
       );
       exitCode = await ffmpeg.exec(args, undefined, { signal });
     }
@@ -432,7 +484,8 @@ export async function exportVideo(
       args = buildArguments(
         recipe, "webm", fallbackOutputName, inputName, targetW, targetH,
         hasMusicTrack, musicInputName, musicOptions,
-        hasOverlay, overlayInputName, overlayOptions, !missingAudioDetected
+        hasOverlay, overlayInputName, overlayOptions, !missingAudioDetected,
+        textOverlays
       );
 
       const fallbackCode = await ffmpeg.exec(args, undefined, { signal });

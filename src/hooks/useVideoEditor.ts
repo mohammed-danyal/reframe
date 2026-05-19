@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { EditRecipe, ExportResult, ExportStatus, MAX_FILE_SIZE, OverlayPosition, isValidRecipe } from "@/lib/types";
+import { EditRecipe, ExportResult, ExportStatus, MAX_FILE_SIZE, OverlayPosition, TextOverlay } from "@/lib/types";
 import { DEFAULT_RECIPE, SPEED_STEPS } from "@/lib/constants";
 import { getPresetById } from "@/lib/presets";
 import { loadFFmpeg, exportVideo, terminateFFmpeg, FFmpegLoadError } from "@/lib/ffmpeg";
@@ -148,16 +148,43 @@ export function useVideoEditor() {
   const [overlaySize, setOverlaySize] = useState(150);
   const [overlayOpacity, setOverlayOpacity] = useState(100);
   const [currentTime, setCurrentTime] = useState(0);
- const updateRecipe = useCallback((patch: Partial<EditRecipe>) => {
-  setRecipe((prev) => {
-    const next = { ...prev, ...patch };
-    // GIF has no audio — force keepAudio off
-    if (next.format === "gif") {
-      next.keepAudio = false;
-    }
-    return next;
-  });
-}, []);
+  const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
+
+  /** Add a new text overlay with sensible defaults (centered near top). */
+  const addTextOverlay = useCallback(() => {
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setTextOverlays((prev) => [
+      ...prev,
+      { id, text: "Your text", x: 50, y: 30, fontSize: 24, color: "#ffffff", fontWeight: "normal" },
+    ]);
+  }, []);
+
+  /** Update a single text overlay by id. */
+  const updateTextOverlay = useCallback((id: string, patch: Partial<Omit<TextOverlay, "id">>) => {
+    setTextOverlays((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...patch } : t))
+    );
+  }, []);
+
+  /** Remove a text overlay by id. */
+  const removeTextOverlay = useCallback((id: string) => {
+    setTextOverlays((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const updateRecipe = useCallback((patch: Partial<EditRecipe>) => {
+    setRecipe((prev) => {
+      const next = { ...prev, ...patch };
+      // GIF has no audio — force keepAudio off
+      if (next.format === "gif") {
+        next.keepAudio = false;
+      }
+      return next;
+    });
+  }, []);
+
   const isValidValue = (key: keyof EditRecipe, val: any): boolean => {
     switch (key) {
       case "preset":
@@ -431,7 +458,8 @@ export function useVideoEditor() {
           position: overlayPosition,
           size: overlaySize,
           opacity: overlayOpacity,
-        }
+        },
+        textOverlays.length > 0 ? textOverlays : undefined
       );
       if (exportCancelledRef.current) return;
 
@@ -457,7 +485,7 @@ export function useVideoEditor() {
         exportAbortControllerRef.current = null;
       }
     }
-  }, [file, recipe, result, status, overlayFile, overlayPosition, overlaySize, overlayOpacity, duration, loopMusic, musicFile, musicVolume, originalAudioVolume]);
+  }, [file, recipe, result, status, overlayFile, overlayPosition, overlaySize, overlayOpacity, duration, loopMusic, musicFile, musicVolume, originalAudioVolume, textOverlays]);
 
 
   useEffect(() => {
@@ -581,6 +609,7 @@ export function useVideoEditor() {
     setProgress(0);
     setResult(null);
     setError(null);
+    setTextOverlays([]);
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {
@@ -645,5 +674,9 @@ export function useVideoEditor() {
     recommendedPreset,
     currentTime,
     toggleSound,
+    textOverlays,
+    addTextOverlay,
+    updateTextOverlay,
+    removeTextOverlay,
   };
 }

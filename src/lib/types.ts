@@ -34,6 +34,19 @@ export interface ImageOverlayOptions {
   opacity: number;
 }
 
+/** A single text overlay positioned on the video preview. */
+export interface TextOverlay {
+  id: string;
+  text: string;
+  /** Horizontal position as a percentage (0–100) of the preview width. */
+  x: number;
+  /** Vertical position as a percentage (0–100) of the preview height. */
+  y: number;
+  fontSize: number;
+  color: string;
+  fontWeight: "normal" | "bold";
+}
+
 export interface BackgroundMusicOptions {
   file: File | null;
   musicVolume: number;
