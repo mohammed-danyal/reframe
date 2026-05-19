@@ -6,6 +6,8 @@ import { EditRecipe, TextOverlay } from "@/lib/types";
 import { getPresetById } from "@/lib/presets";
 import { cn } from "@/lib/utils";
 import { Camera } from "lucide-react";
+import { captureFrameAsPng } from "@/lib/frame-export";
+import { DEFAULT_RECIPE } from "@/lib/constants";
 
 interface Props {
   file: File | null;
@@ -26,11 +28,11 @@ export default function VideoPreview({ file, recipe, videoRef, textOverlays, onU
   /* ── Drag and Tap state for text overlays ── */
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<{ id: string; time: number }>({ id: "", time: 0 });
-  const dragRef = useRef<{ 
-    id: string; 
-    startX: number; 
-    startY: number; 
-    origX: number; 
+  const dragRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    origX: number;
     origY: number;
     target: HTMLElement;
     pointerId: number;
@@ -41,7 +43,7 @@ export default function VideoPreview({ file, recipe, videoRef, textOverlays, onU
     (e: React.PointerEvent, overlay: TextOverlay) => {
       // Ignore if the element is being edited
       if ((e.target as HTMLElement).isContentEditable) return;
-      
+
       const now = Date.now();
       if (lastTapRef.current.id === overlay.id && now - lastTapRef.current.time < 300) {
         // Double tap detected
@@ -67,15 +69,15 @@ export default function VideoPreview({ file, recipe, videoRef, textOverlays, onU
 
       e.preventDefault();
       e.stopPropagation();
-      
+
       const target = e.currentTarget as HTMLElement;
       target.setPointerCapture(e.pointerId);
-      
-      dragRef.current = { 
-        id: overlay.id, 
-        startX: e.clientX, 
-        startY: e.clientY, 
-        origX: overlay.x, 
+
+      dragRef.current = {
+        id: overlay.id,
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: overlay.x,
         origY: overlay.y,
         target,
         pointerId: e.pointerId
@@ -120,35 +122,78 @@ export default function VideoPreview({ file, recipe, videoRef, textOverlays, onU
     }
   }, []);
 
+  const [frameNotice, setFrameNotice] = useState<{
+    kind: "success" | "error";
+    message: string;
+  } | null>(null);
+  const [isExportingFrame, setIsExportingFrame] = useState(false);
+  const isExportingFrameRef = useRef(false);
+  const activeRecipe = recipe ?? DEFAULT_RECIPE;
+
+  useEffect(() => {
+    if (!frameNotice) return;
+
+    const timeoutId = window.setTimeout(() => setFrameNotice(null), 2500);
+    return () => window.clearTimeout(timeoutId);
+  }, [frameNotice]);
+
   /** Capture the current video frame and download it as a PNG. */
-  const handleGrabFrame = useCallback(() => {
+  const handleGrabFrame = useCallback(async () => {
+    if (isExportingFrameRef.current) return;
+
     const video = videoRef.current;
-    if (!video || video.readyState < 2) return;
+    if (!video) {
+      setFrameNotice({ kind: "error", message: "No video frame is available yet." });
+      return;
+    }
 
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    isExportingFrameRef.current = true;
+    setIsExportingFrame(true);
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    canvas.toBlob((blob) => {
-      if (!blob) return;
-
-      const totalSec = Math.floor(video.currentTime);
-      const mins = String(Math.floor(totalSec / 60)).padStart(2, "0");
-      const secs = String(totalSec % 60).padStart(2, "0");
-      const filename = `frame-${mins}m${secs}s.png`;
-
+    try {
+      const { blob, filename } = await captureFrameAsPng(video, activeRecipe);
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
-    }, "image/png");
-  }, [videoRef]);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setFrameNotice({ kind: "success", message: `Saved ${filename}` });
+    } catch (error) {
+      console.error("frame export failed:", error);
+      setFrameNotice({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Frame export failed.",
+      });
+    } finally {
+      isExportingFrameRef.current = false;
+      setIsExportingFrame(false);
+    }
+  }, [activeRecipe, videoRef]);
+
+  useEffect(() => {
+    const handleShortcut = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.code === "KeyT") {
+        e.preventDefault();
+        void handleGrabFrame();
+      }
+    };
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [handleGrabFrame]);
   useEffect(() => {
     if (!file) return;
 
@@ -172,7 +217,7 @@ export default function VideoPreview({ file, recipe, videoRef, textOverlays, onU
     // define handler once per effect run
     const handleLoaded = () => {
       if (lastId.current !== id) return;
-      video.play().catch(() => {});
+      video.play().catch(() => { });
     };
 
     onLoadedRef.current = handleLoaded;
@@ -267,7 +312,7 @@ export default function VideoPreview({ file, recipe, videoRef, textOverlays, onU
       if (video) {
         e.preventDefault(); // Prevent default page scroll
         if (video.paused) {
-          video.play().catch(() => {});
+          video.play().catch(() => { });
         } else {
           video.pause();
         }
@@ -402,11 +447,10 @@ export default function VideoPreview({ file, recipe, videoRef, textOverlays, onU
         <button
           type="button"
           onClick={() => setShowOverlay((v) => !v)}
-          className={`absolute bottom-10 right-2 px-2 py-1 text-[10px] font-heading font-bold uppercase tracking-wider rounded transition-colors z-10 pointer-events-auto ${
-            showOverlay
+          className={`absolute bottom-10 right-2 px-2 py-1 text-[10px] font-heading font-bold uppercase tracking-wider rounded transition-colors z-10 pointer-events-auto ${showOverlay
               ? "bg-film-600 text-white"
               : "bg-black/60 text-white/70 hover:bg-black/80"
-          }`}
+            }`}
           aria-pressed={showOverlay}
           aria-label={showOverlay ? "Hide framing overlay" : "Show framing overlay"}
           title={showOverlay ? "Hide framing overlay" : "Show framing overlay"}
@@ -419,13 +463,15 @@ export default function VideoPreview({ file, recipe, videoRef, textOverlays, onU
       {!isLoading && (
         <button
           type="button"
-          onClick={handleGrabFrame}
-          className="absolute top-2 right-2 px-2 py-1 text-[10px] font-heading font-bold uppercase tracking-wider rounded transition-colors z-10 pointer-events-auto bg-black/60 text-white/70 hover:bg-black/80 flex items-center gap-1"
-          aria-label="Grab frame as PNG"
-          title="Download current frame as PNG"
+          onClick={() => void handleGrabFrame()}
+          disabled={isExportingFrame}
+          className="absolute top-2 right-2 px-2 py-1 text-[10px] font-heading font-bold uppercase tracking-wider rounded transition-colors z-10 pointer-events-auto bg-black/60 text-white/70 hover:bg-black/80 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label="Export current frame as PNG"
+          aria-keyshortcuts="T"
+          title="Export current frame as PNG (T)"
         >
           <Camera className="w-3 h-3" />
-          Grab frame
+          {isExportingFrame ? "Exporting" : "Export frame"}
         </button>
       )}
     </div>
