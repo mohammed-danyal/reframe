@@ -485,7 +485,7 @@ export function useVideoEditor() {
         exportAbortControllerRef.current = null;
       }
     }
-  }, [file, recipe, result, status, overlayFile, overlayPosition, overlaySize, overlayOpacity, duration, loopMusic, musicFile, musicVolume, originalAudioVolume, textOverlays]);
+  }, [file, recipe, result, status, overlayFile, overlayPosition, overlaySize, overlayOpacity, duration, textOverlays, loopMusic, musicFile, musicVolume, originalAudioVolume]);
 
 
   useEffect(() => {
