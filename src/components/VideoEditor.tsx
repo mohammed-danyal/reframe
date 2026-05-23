@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useVideoEditor } from "@/hooks/useVideoEditor";
+import { TextOverlay } from "@/lib/types";
 import FileUpload from "./FileUpload";
 import VideoPreview from "./VideoPreview";
 import ThumbnailStrip from "./ThumbnailStrip";
@@ -9,6 +10,7 @@ import PresetSelector from "./PresetSelector";
 import FramingControl from "./FramingControl";
 import TrimControl from "./TrimControl";
 import RotateControl from "./RotateControl";
+import TextControls from "./TextControls";
 import AudioSpeedControl from "./AudioSpeedControl";
 import FormatSelector from "./FormatSelector";
 import ExportSettings from "./ExportSettings";
@@ -18,7 +20,7 @@ import ImageOverlay from "./ImageOverlay"
 
 import { cn } from "@/lib/utils";
 import {
-  Layers, Crop, Scissors, RotateCw, Volume2,
+  Layers, Crop, Scissors, RotateCw, Volume2, Type,
   SlidersHorizontal, Zap, AlertTriangle, Github, Copy
 } from "lucide-react";
 import OnboardingTour from "./OnboardingTour";
@@ -232,10 +234,12 @@ export default function VideoEditor() {
 
   const [copied, setCopied] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState({
     resize: true,
     trim: false,
     rotation: false,
+    text: false,
     audio: false,
     export: false,
   });
@@ -243,6 +247,16 @@ export default function VideoEditor() {
   const toggleSection = (key: keyof typeof openSections) =>
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
   const downloadRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Updates a text overlay property and syncs with recipe.
+   */
+  const handleUpdateTextOverlay = (id: string, updates: Partial<TextOverlay>) => {
+    const updatedOverlays = (recipe.textOverlays || []).map((overlay) =>
+      overlay.id === id ? { ...overlay, ...updates } : overlay
+    );
+    updateRecipe({ textOverlays: updatedOverlays });
+  };
 
   const handleCopyLink = () => {
     if (typeof window === "undefined") return;
@@ -322,7 +336,14 @@ export default function VideoEditor() {
 
               {file && (
                 <div className="mt-4 animate-fade-in">
-                  <VideoPreview file={file} recipe={recipe} videoRef={videoRef} />
+                  <VideoPreview
+                    file={file}
+                    recipe={recipe}
+                    videoRef={videoRef}
+                    selectedTextId={selectedTextId}
+                    onSelectText={setSelectedTextId}
+                    onUpdateText={handleUpdateTextOverlay}
+                  />
 
                   <div className="mt-3">
                     <ThumbnailStrip
@@ -374,6 +395,22 @@ export default function VideoEditor() {
                     delay={100}
                   >
                     <RotateControl recipe={recipe} onChange={updateRecipe} />
+                  </AccordionSection>
+
+                  <AccordionSection
+                    id="text"
+                    icon={<Type size={12} />}
+                    title="Text Overlay"
+                    isOpen={openSections.text}
+                    onToggle={() => toggleSection("text")}
+                    delay={110}
+                  >
+                    <TextControls
+                      recipe={recipe}
+                      onChange={updateRecipe}
+                      selectedTextId={selectedTextId}
+                      onSelectText={setSelectedTextId}
+                    />
                   </AccordionSection>
                 </div>
                 <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] p-5 space-y-6">
