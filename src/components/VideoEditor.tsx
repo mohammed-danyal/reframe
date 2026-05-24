@@ -19,12 +19,12 @@ import DownloadResult from "./DownloadResult";
 import ImageOverlay from "./ImageOverlay"
 
 import { cn } from "@/lib/utils";
-import {
-  Layers, Crop, Scissors, RotateCw, Volume2, Type,
-  SlidersHorizontal, Zap, AlertTriangle, Github, Copy
+import { Layers, Crop, Scissors, RotateCw, Volume2, Type,
+  SlidersHorizontal, Zap, AlertTriangle, Github, Copy, RotateCcw, RotateCw as RotateCwIcon
 } from "lucide-react";
 import OnboardingTour from "./OnboardingTour";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useHistorySync } from "@/hooks/useHistorySync";
 
 interface SectionProps {
   icon: React.ReactNode;
@@ -132,11 +132,19 @@ function KeyboardShortcutsPanel() {
 
   const shortcuts: { keys: React.ReactNode[]; label: string }[] = [
   {
+    keys: [<Kbd key="ctrl">Ctrl</Kbd>, <span key="plus0" className="text-[var(--muted)] text-xs">+</span>, <Kbd key="z">Z</Kbd>],
+    label: "Undo action",
+  },
+  {
+    keys: [<Kbd key="ctrl">Ctrl</Kbd>, <span key="plus1" className="text-[var(--muted)] text-xs">+</span>, <Kbd key="shift">Shift</Kbd>, <span key="plus1b" className="text-[var(--muted)] text-xs">+</span>, <Kbd key="z2">Z</Kbd>],
+    label: "Redo action",
+  },
+  {
     keys: [
       <Kbd key="ctrl">Ctrl</Kbd>,
-      <span key="plus1" className="text-[var(--muted)] text-xs">+</span>,
-      <Kbd key="shift">Shift</Kbd>,
       <span key="plus2" className="text-[var(--muted)] text-xs">+</span>,
+      <Kbd key="shift">Shift</Kbd>,
+      <span key="plus3" className="text-[var(--muted)] text-xs">+</span>,
       <Kbd key="e">E</Kbd>
     ],
     label: "Export video",
@@ -210,6 +218,7 @@ export default function VideoEditor() {
     file, duration, recipe, status, progress,
     result, error, updateRecipe,
     handleFileSelect, fileError, handleExport, cancelExport, reset, resetSettings,
+    undo, redo, canUndo, canRedo,
     videoRef,
     seekTo,
     overlayFile, setOverlayFile,
@@ -230,11 +239,17 @@ export default function VideoEditor() {
     status,
     cancelExport,
     onToggleShortcutsModal: () => {},
+    undo,
+    redo,
   });
 
   const [copied, setCopied] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  
+  // Sync selection state after undo/redo to prevent stale references
+  useHistorySync(recipe, selectedTextId, setSelectedTextId);
+  
   const [openSections, setOpenSections] = useState({
     resize: true,
     trim: false,
@@ -636,7 +651,29 @@ export default function VideoEditor() {
                 </div>
               </AccordionSection>
 
-              <div className="pt-2 flex justify-between items-center">
+              <div className="pt-2 flex justify-between items-center gap-2">
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={undo}
+                    disabled={!canUndo || !file}
+                    aria-label="Undo last action"
+                    title={canUndo ? "Undo (Ctrl+Z)" : "Nothing to undo"}
+                    className="flex items-center justify-center p-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] font-semibold text-sm hover:bg-[var(--border)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <RotateCcw size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={redo}
+                    disabled={!canRedo || !file}
+                    aria-label="Redo last action"
+                    title={canRedo ? "Redo (Ctrl+Shift+Z)" : "Nothing to redo"}
+                    className="flex items-center justify-center p-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] font-semibold text-sm hover:bg-[var(--border)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <RotateCwIcon size={14} />
+                  </button>
+                </div>
                 <button
                   type="button"
                   onClick={handleCopyLink}

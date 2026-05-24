@@ -7,6 +7,7 @@ import { getPresetById } from "@/lib/presets";
 import { loadFFmpeg, exportVideo, terminateFFmpeg, FFmpegLoadError } from "@/lib/ffmpeg";
 import { suggestPreset } from "@/lib/presetSuggestion";
 import { validateDimensions, getDownscaledDimensions } from "@/utils/video-validation";
+import { HistoryState, createHistoryState, pushHistory as pushHistoryState, undo as undoHistory, redo as redoHistory, canUndo, canRedo, shallowEqual } from "@/utils/history";
 
 const DEFAULT_TITLE = "Reframe — Resize, trim, and export videos in your browser";
   const STORAGE_KEY = "reframe:recipe";
@@ -151,16 +152,112 @@ export function useVideoEditor() {
   const [overlaySize, setOverlaySize] = useState(150);
   const [overlayOpacity, setOverlayOpacity] = useState(100);
   const [currentTime, setCurrentTime] = useState(0);
- const updateRecipe = useCallback((patch: Partial<EditRecipe>) => {
-  setRecipe((prev) => {
-    const next = { ...prev, ...patch };
-    // GIF has no audio — force keepAudio off
-    if (next.format === "gif") {
-      next.keepAudio = false;
+  
+  // Undo/redo history state tracking
+  // Stores snapshots of EditRecipe state for undo/redo functionality
+  const [recipeHistory, setRecipeHistory] = useState<HistoryState<EditRecipe>>(() =>
+    createHistoryState(recipe)
+  );
+  
+  // Track previous recipe to detect changes and update history
+  // Uses object reference equality for efficient change detection
+  const prevRecipeRef = useRef(recipe);
+  
+  // Flag to prevent re-tracking when undo/redo updates recipe
+  // When true, the history sync effect will skip pushing to history
+  // This prevents creating duplicate history entries during restoration
+  const isRestoringFromHistoryRef = useRef(false);
+
+  const updateRecipe = useCallback((patch: Partial<EditRecipe>) => {
+    setRecipe((prev) => {
+      const next = { ...prev, ...patch };
+      // GIF has no audio — force keepAudio off
+      if (next.format === "gif") {
+        next.keepAudio = false;
+      }
+      return next;
+    });
+  }, []);
+
+  // Sync recipe changes with history state
+  // This effect watches for recipe changes and pushes them to history
+  // It avoids duplicates by using shallowEqual and skips pushes during undo/redo
+  //
+  // Flow:
+  // 1. User calls updateRecipe() → recipe state changes
+  // 2. Effect detects change via shallowEqual
+  // 3. If not an undo/redo operation (flag is false), push to history
+  // 4. History entry now available for undo
+  //
+  // Performance note: shallowEqual provides O(n) check where n = number of EditRecipe keys (~20)
+  // This is acceptable and prevents history spam from rapid changes
+  useEffect(() => {
+    if (!shallowEqual(prevRecipeRef.current, recipe)) {
+      // Skip pushing to history if this change came from undo/redo restoration
+      if (!isRestoringFromHistoryRef.current) {
+        setRecipeHistory((history) => {
+          // Double-check we're not pushing a duplicate (in case of race conditions)
+          if (shallowEqual(history.present, recipe)) {
+            return history;
+          }
+          return pushHistoryState(history, recipe);
+        });
+      }
+      // Reset the flag after handling
+      isRestoringFromHistoryRef.current = false;
+      prevRecipeRef.current = recipe;
     }
-    return next;
-  });
-}, []);
+  }, [recipe]);
+
+  /**
+   * Undoes the last editor action by restoring the previous recipe state.
+   * 
+   * Behavior:
+   * - Moves current state to the redo stack
+   * - Restores the most recent past state to present
+   * - Updates the recipe state to trigger React re-renders
+   * - Does nothing if no history is available
+   * 
+   * This is called by:
+   * - Keyboard shortcut (Ctrl+Z / Cmd+Z)
+   * - Toolbar undo button
+   * 
+   * The recipe state update automatically triggers UI components to update
+   * through React's reactive rendering.
+   */
+  const undo = useCallback(() => {
+    setRecipeHistory((prev) => {
+      const newHistory = undoHistory(prev);
+      isRestoringFromHistoryRef.current = true;
+      setRecipe(newHistory.present);
+      return newHistory;
+    });
+  }, []);
+
+  /**
+   * Redoes the last undone editor action by restoring the next recipe state.
+   * 
+   * Behavior:
+   * - Moves current state to the past stack
+   * - Restores the most recent future state to present
+   * - Updates the recipe state to trigger React re-renders
+   * - Does nothing if no redo history is available
+   * 
+   * This is called by:
+   * - Keyboard shortcut (Ctrl+Shift+Z / Cmd+Shift+Z)
+   * - Toolbar redo button
+   * 
+   * The recipe state update automatically triggers UI components to update
+   * through React's reactive rendering.
+   */
+  const redo = useCallback(() => {
+    setRecipeHistory((prev) => {
+      const newHistory = redoHistory(prev);
+      isRestoringFromHistoryRef.current = true;
+      setRecipe(newHistory.present);
+      return newHistory;
+    });
+  }, []);
   const isValidValue = (key: keyof EditRecipe, val: any): boolean => {
     switch (key) {
       case "preset":
@@ -577,6 +674,7 @@ export function useVideoEditor() {
 
   const resetSettings = useCallback(() => {
     setRecipe(DEFAULT_RECIPE);
+    setRecipeHistory(createHistoryState(DEFAULT_RECIPE));
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {
@@ -601,6 +699,9 @@ export function useVideoEditor() {
     setVideoMetadata(null);
     setDuration(0);
     setRecipe(DEFAULT_RECIPE);
+    setRecipeHistory(createHistoryState(DEFAULT_RECIPE));
+    isRestoringFromHistoryRef.current = false;
+    prevRecipeRef.current = DEFAULT_RECIPE;
     setStatus("idle");
     setProgress(0);
     setResult(null);
@@ -650,6 +751,10 @@ export function useVideoEditor() {
     cancelExport,
     reset,
     resetSettings,
+    undo,
+    redo,
+    canUndo: canUndo(recipeHistory),
+    canRedo: canRedo(recipeHistory),
     musicFile,
     setMusicFile,
     musicVolume,

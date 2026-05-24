@@ -11,6 +11,8 @@ interface UseKeyboardShortcutsProps {
   status: ExportStatus;
   cancelExport: () => void;
   onToggleShortcutsModal: () => void;
+  undo: () => void;
+  redo: () => void;
 }
 
 export function useKeyboardShortcuts({
@@ -22,6 +24,8 @@ export function useKeyboardShortcuts({
   status,
   cancelExport,
   onToggleShortcutsModal,
+  undo,
+  redo,
 }: UseKeyboardShortcutsProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -34,6 +38,22 @@ export function useKeyboardShortcuts({
 
       const isMac = navigator.platform.toUpperCase().includes("MAC");
       const isCtrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+      // Undo: Ctrl+Z (or Cmd+Z on Mac)
+      if (isCtrlOrCmd && !e.shiftKey && e.key === "z") {
+        e.preventDefault();
+        e.stopPropagation();
+        undo();
+        return;
+      }
+
+      // Redo: Ctrl+Shift+Z (or Cmd+Shift+Z on Mac)
+      if (isCtrlOrCmd && e.shiftKey && e.key === "z") {
+        e.preventDefault();
+        e.stopPropagation();
+        redo();
+        return;
+      }
 
       if (isCtrlOrCmd && e.shiftKey && e.key === "E") {
         e.preventDefault();
@@ -75,5 +95,5 @@ export function useKeyboardShortcuts({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [file, recipe, resetSettings, updateRecipe, handleExport, status, cancelExport, onToggleShortcutsModal]);
+  }, [file, recipe, resetSettings, updateRecipe, handleExport, status, cancelExport, onToggleShortcutsModal, undo, redo]);
 }

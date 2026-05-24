@@ -29,6 +29,11 @@ export default function DraggableTextOverlays({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState<string>("");
+  
+  // Live drag position state - updates during drag but doesn't trigger history
+  // This enables smooth, responsive visual feedback without polluting undo history
+  // Only committed to history when drag ends (onMouseUp)
+  const [livePosition, setLivePosition] = useState<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLDivElement>(null);
 
@@ -117,6 +122,21 @@ export default function DraggableTextOverlays({
 
   /**
    * Handles dragging of text overlays.
+   * 
+   * Implements professional drag-aware history behavior:
+   * 
+   * During drag:
+   * - Updates livePosition state for smooth visual feedback (no history impact)
+   * - User sees immediate, responsive movement
+   * - No history entries created during active dragging
+   * 
+   * On drag end (mouse release):
+   * - Commits final position via onUpdateText() callback
+   * - Single history entry created by useVideoEditor effect
+   * - History remains clean and professional
+   * 
+   * This prevents history pollution from rapid position updates during dragging.
+   * Similar to behavior in Figma, Canva, and other professional editors.
    */
   useEffect(() => {
     if (!draggingId || !containerRef.current) return;
@@ -133,11 +153,18 @@ export default function DraggableTextOverlays({
         containerHeight
       );
 
-      onUpdateText(draggingId, { x: percentX, y: percentY });
+      // Update live position for smooth UI rendering (NO history tracking yet)
+      setLivePosition({ x: percentX, y: percentY });
     };
 
     const handleMouseUp = () => {
+      // Commit final position to history ONLY once when drag ends
+      // This creates a single history entry for the entire drag operation
+      if (livePosition) {
+        onUpdateText(draggingId, { x: livePosition.x, y: livePosition.y });
+      }
       setDraggingId(null);
+      setLivePosition(null);
     };
 
     document.addEventListener("mousemove", handleMouseMove);
@@ -147,7 +174,7 @@ export default function DraggableTextOverlays({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [draggingId, dragOffset, containerWidth, containerHeight, onUpdateText]);
+  }, [draggingId, dragOffset, containerWidth, containerHeight, onUpdateText, livePosition]);
 
   /**
    * Focus edit input when entering edit mode.
@@ -177,15 +204,20 @@ export default function DraggableTextOverlays({
       style={{ width: containerWidth, height: containerHeight }}
     >
       {textOverlays.map((overlay) => {
+        const isSelected = selectedTextId === overlay.id;
+        const isDragging = draggingId === overlay.id;
+
+        // Use live position during drag for smooth rendering, otherwise use recipe position
+        const displayPos = isDragging && livePosition 
+          ? livePosition 
+          : { x: overlay.x, y: overlay.y };
+
         const { left, top } = getTextPixelPosition(
-          overlay.x,
-          overlay.y,
+          displayPos.x,
+          displayPos.y,
           containerWidth,
           containerHeight
         );
-
-        const isSelected = selectedTextId === overlay.id;
-        const isDragging = draggingId === overlay.id;
 
         return (
           <div
