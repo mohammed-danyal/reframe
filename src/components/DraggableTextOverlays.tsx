@@ -31,6 +31,12 @@ export default function DraggableTextOverlays({
   const [editText, setEditText] = useState<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLDivElement>(null);
+  
+  /**
+   * Tracks whether initial focus and text selection have been applied.
+   * Prevents re-selecting text on every keystroke during editing.
+   */
+  const initialFocusAppliedRef = useRef(false);
 
   /**
    * Memoize text overlays to prevent unnecessary dependency changes.
@@ -39,9 +45,15 @@ export default function DraggableTextOverlays({
 
   /**
    * Handles the start of a drag operation.
+   * Skipped when in edit mode to allow normal caret positioning.
    */
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>, overlayId: string) => {
+      // Don't start drag while editing — let clicks position the caret naturally
+      if (editingId === overlayId) {
+        return;
+      }
+
       e.preventDefault();
       e.stopPropagation();
 
@@ -64,7 +76,7 @@ export default function DraggableTextOverlays({
         y: e.clientY - rect.top - pixelY,
       });
     },
-    [textOverlays, containerWidth, containerHeight, onSelectText]
+    [textOverlays, containerWidth, containerHeight, onSelectText, editingId]
   );
 
   /**
@@ -94,6 +106,7 @@ export default function DraggableTextOverlays({
       }
       setEditingId(null);
       setEditText("");
+      initialFocusAppliedRef.current = false;
     },
     [editText, onUpdateText]
   );
@@ -110,6 +123,7 @@ export default function DraggableTextOverlays({
         e.preventDefault();
         setEditingId(null);
         setEditText("");
+        initialFocusAppliedRef.current = false;
       }
     },
     [handleSaveEdit]
@@ -151,13 +165,28 @@ export default function DraggableTextOverlays({
 
   /**
    * Focus edit input when entering edit mode.
+   * 
+   * Applies initial text selection only ONCE when entering edit mode.
+   * This prevents the selection from being re-applied on every keystroke,
+   * which was causing the typing-overwrites-text bug.
+   * 
+   * Selection behavior:
+   * - On double-click: text is fully selected for quick replacement
+   * - On first keystroke: selection is cleared for normal typing
+   * - During continued typing: normal text cursor behavior applies
    */
   useEffect(() => {
-    if (editingId && editInputRef.current) {
-      // Set the initial text content
+    if (!editingId || !editInputRef.current) {
+      initialFocusAppliedRef.current = false;
+      return;
+    }
+
+    // Only apply initial focus and selection once per edit session
+    if (!initialFocusAppliedRef.current) {
       editInputRef.current.textContent = editText;
       editInputRef.current.focus();
-      // Select all text for quick replacement
+
+      // Select all text for quick replacement, but only on first focus
       const range = document.createRange();
       range.selectNodeContents(editInputRef.current);
       const sel = window.getSelection();
@@ -165,8 +194,10 @@ export default function DraggableTextOverlays({
         sel.removeAllRanges();
         sel.addRange(range);
       }
+
+      initialFocusAppliedRef.current = true;
     }
-  }, [editingId, editText]);
+  }, [editingId, editText]); // Added editText to fix closure issue, but guarded by ref
 
   if (!textOverlays || textOverlays.length === 0) return null;
 
@@ -235,7 +266,10 @@ export default function DraggableTextOverlays({
                 contentEditable
                 suppressContentEditableWarning
                 onBlur={() => handleSaveEdit(overlay.id)}
-                onInput={(e) => setEditText(e.currentTarget.textContent || "")}
+                onInput={(e) => {
+                  // Simply update the text state and let browser handle caret naturally
+                  setEditText(e.currentTarget.textContent || "");
+                }}
                 className="outline-none bg-black/30 px-1 py-0.5 rounded"
                 style={{
                   color: overlay.color,
