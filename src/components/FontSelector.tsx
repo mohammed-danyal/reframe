@@ -59,8 +59,9 @@ export default function FontSelector({
       const result = await onAddFonts(files);
 
       // Auto-select first successfully added font
-      if (result.success > 0 && files.length > 0) {
-        const fontName = files[0].name.replace(/\.[^.]*$/, "").replace(/[-_\s]/g, "");
+      const firstFile = files[0];
+      if (result.success > 0 && firstFile) {
+        const fontName = firstFile.name.replace(/\.[^.]*$/, "").replace(/[-_\s]/g, "");
         onSelectFont(fontName);
       }
 

@@ -172,7 +172,7 @@ export function getRegisteredFonts(): string[] {
  * clearCustomFonts();
  */
 export function clearCustomFonts(): void {
-  const builtInNames = BUILT_IN_FONTS.map(({ name }) => name);
+  const builtInNames = BUILT_IN_FONTS.map(({ name }) => name) as string[];
   const customFonts = Array.from(fontRegistry.keys()).filter(
     (name) => !builtInNames.includes(name)
   );
@@ -202,7 +202,7 @@ export function getFFmpegFontArg(fontName?: string, fontPath?: string): string {
   if (!fontName) return "";
 
   // Built-in fonts don't need explicit fontfile parameter
-  const builtInNames = BUILT_IN_FONTS.map(({ name }) => name);
+  const builtInNames = BUILT_IN_FONTS.map(({ name }) => name) as string[];
   if (builtInNames.includes(fontName)) {
     return "";
   }
@@ -244,7 +244,7 @@ export async function ensureFontLoaded(
   }
 
   // Google Fonts and built-in web fonts (Inter, Roboto, Poppins, Montserrat)
-  const builtInNames = BUILT_IN_FONTS.map(({ name }) => name);
+  const builtInNames = BUILT_IN_FONTS.map(({ name }) => name) as string[];
   if (builtInNames.includes(fontName)) {
     // These are loaded via @import in globals.css, so they should be ready
     // But try to load them anyway to ensure they're available
