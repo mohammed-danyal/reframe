@@ -209,6 +209,7 @@ export default function VideoEditor() {
     overlayOpacity, setOverlayOpacity,
     recommendedPreset,
     currentTime,
+    setCurrentTime,
     toggleSound,
   } = useVideoEditor();
 
@@ -386,8 +387,11 @@ export default function VideoEditor() {
                     recipe={recipe}
                     videoRef={videoRef}
                     selectedTextId={selectedTextId}
+                    currentTime={currentTime}
+                    videoDuration={duration}
                     onSelectText={setSelectedTextId}
                     onUpdateText={handleUpdateTextOverlay}
+                    onCurrentTimeChange={setCurrentTime}
                   />
 
                   <div className="mt-3">
@@ -453,6 +457,7 @@ export default function VideoEditor() {
                   >
                     <TextControls
                       recipe={recipe}
+                      duration={duration}
                       onChange={updateRecipe}
                       selectedTextId={selectedTextId}
                       onSelectText={setSelectedTextId}
